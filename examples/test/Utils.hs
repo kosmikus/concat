@@ -2,8 +2,11 @@
 
 module Utils where
 
+import           ConCat.ADFun
+import           ConCat.AltCat (toCcc)
 import qualified ConCat.AltCat as A
 import           ConCat.Circuit (mkGraph, graphDot)
+import           ConCat.RAD
 import           ConCat.Syntactic (render)
 import qualified Data.ByteString.Lazy.Char8 as BS
 import           Data.Semigroup ((<>))

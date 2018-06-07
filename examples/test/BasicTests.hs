@@ -13,6 +13,8 @@
 
 module BasicTests where
 
+import           BasicTests.CircuitGraphs
+import           BasicTests.CircuitDers
 import           ConCat.ADFun hiding (D)
 import           ConCat.AdditiveFun
 import           ConCat.AltCat (toCcc, toCcc')
@@ -46,32 +48,12 @@ import           Utils
 
 basicTests :: TestTree
 basicTests = testGroup "basic tests"
-  [ testGroup "" []
+  [ circuitGraphs
+  , circuitDers
+  ]
 
-  -- Circuit graphs
-  , runSynCirc "add"         $ toCcc $ (+) @R
-  , runSynCirc "add-uncurry" $ toCcc $ uncurry ((+) @R)
-  , runSynCirc "dup"         $ toCcc $ A.dup @(->) @R
-  , runSynCirc "fst"         $ toCcc $ fst @R @R
-  , runSynCirc "twice"       $ toCcc $ twice @R
-  , runSynCirc "sqr"         $ toCcc $ sqr @R
-  , runSynCirc "complex-mul" $ toCcc $ uncurry ((*) @C)
-  , runSynCirc "magSqr"      $ toCcc $ magSqr @R
-  , runSynCirc "cosSinProd"  $ toCcc $ cosSinProd @R
-  , runSynCirc "xp3y"        $ toCcc $ \ (x,y) -> x + 3 * y :: R
-  , runSynCirc "horner"      $ toCcc $ horner @R [1,3,5]
-  , runSynCirc "cos-2xx"     $ toCcc $ \ x -> cos (2 * x * x) :: R
 
   -- Automatic differentiation variants
-  , runSynCircDers "add"     $ uncurry ((+) @R)
-  , runSynCircDers "sin"     $ sin @R
-  , runSynCircDers "cos"     $ cos @R
-  , runSynCircDers "twice"   $ twice @R
-  , runSynCircDers "sqr"     $ sqr @R
-  , runSynCircDers "magSqr"  $ magSqr  @R
-  , runSynCircDers "cos-2x"  $ \ x -> cos (2 * x) :: R
-  , runSynCircDers "cos-2xx" $ \ x -> cos (2 * x * x) :: R
-  , runSynCircDers "cos-xpy" $ \ (x,y) -> cos (x + y) :: R
 
   -- , runSynCirc "cosSinProd" $ toCcc $ andDerR $ cosSinProd @R
 
@@ -332,15 +314,4 @@ basicTests = testGroup "basic tests"
 
 #endif
 
-  ]
 
-
-runSynCircDers :: (GO a b, Num b) => String -> (a -> b) -> TestTree
-runSynCircDers nm f =
-  testGroup (nm ++ "-ders")
-  [ {- runSynCirc nm               $ toCcc $ id       $ f
-  , -} runSynCirc (nm ++ "-adf")   $ toCcc $ andDerF  $ f
-  , runSynCirc (nm ++ "-adr")   $ toCcc $ andDerR  $ f
-  , runSynCirc (nm ++ "-gradr") $ toCcc $ andGradR $ f
-  ]
-{-# INLINE runSynCircDers #-}
