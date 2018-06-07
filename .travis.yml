@@ -1,61 +1,99 @@
 # Adapted from https://github.com/commercialhaskell/stack
-language: nix
+language: generic
 sudo: false
 
 cache:
-    directories:
-        - $HOME/.ghc
-        - $HOME/.cabal
-        - $HOME/.stack
-        - .stack-work
+  directories:
+    - $HOME/.ghc
+    - $HOME/.cabal
+    - $HOME/.stack
+    - $TRAVIS_BUILD_DIR/.stack-work
 
 matrix:
   fast_finish: true
   include:
-    # Add build targets here
-    - env: GHCVER=7.8.4 CACHE_NAME=7.8.4
-      compiler: ": #stack 7.8.4"
-      addons: {apt: {packages: [ghc-7.8.4], sources: [hvr-ghc]}}
-
-    - env: GHCVER=7.10.3 CACHE_NAME=7.10.3
-      compiler: ": #stack 7.10.3"
-      addons: {apt: {packages: [ghc-7.10.3], sources: [hvr-ghc]}}
-
-    - env: GHCVER=8.0.2 CACHE_NAME=8.0.2
+    - env: BUILD=stack ARGS="--stack-yaml=stack.yaml" CACHE_NAME=8.0.2-stack
       compiler: ": #stack 8.0.2"
-      addons: {apt: {packages: [ghc-8.0.2], sources: [hvr-ghc]}}
+      addons: {apt: {packages: [libgmp-dev]}}
 
-    - env: GHCVER=8.2.1 CACHE_NAME=8.2.1
-      compiler: ": #stack 8.2.1"
-      addons: {apt: {packages: [ghc-8.2.1], sources: [hvr-ghc]}}
-
-    - env: GHCVER=8.4.1 CACHE_NAME=8.4.1
-      compiler: ": #stack 8.4.1"
-      addons: {apt: {packages: [ghc-8.4.1], sources: [hvr-ghc]}}
-
-    - env: GHCVER=8.2.1 CACHE_NAME=8.2.1-osx
+    - env: BUILD=stack ARGS="--stack-yaml=stack.yaml" CACHE_NAME=8.2.1-stack-osx
       os: osx
       compiler: ": #stack 8.2.1"
-      addons: {apt: {packages: [ghc-8.2.1], sources: [hvr-ghc]}}
+      addons: {apt: {packages: [libgmp-dev]}}
+
+before_install:
+  - unset CC
+
+  - export PATH=/opt/ghc/$GHCVER/bin:/opt/cabal/$CABALVER/bin:$HOME/.local/bin:/opt/alex/$ALEXVER/bin:/opt/happy/$HAPPYVER/bin:$HOME/.cabal/bin:$PATH
+  - mkdir -p ~/.local/bin
+  - |
+    if [ `uname` = "Darwin" ]
+    then
+      travis_retry curl --insecure -L https://get.haskellstack.org/stable/osx-x86_64.tar.gz | tar xz --strip-components=1 --include '*/stack' -C ~/.local/bin
+    else
+      travis_retry curl -L https://get.haskellstack.org/stable/linux-x86_64.tar.gz | tar xz --wildcards --strip-components=1 -C ~/.local/bin '*/stack'
+    fi
 
 install:
- - unset CC
- - export PATH=$HOME/.local/bin:/opt/ghc/$GHCVER/bin:$PATH
- - ./.travis/install-ghr.sh
- - ./.travis/install-stack.sh
+  - echo "$(ghc --version) [$(ghc --print-project-git-commit-id 2> /dev/null || echo '?')]"
+  - if [ -f configure.ac ]; then autoreconf -i; fi
+  - |
+    set -ex
+    case "$BUILD" in
+      stack)
+        # Add in extra-deps for older snapshots, as necessary
+        stack --no-terminal --install-ghc $ARGS test --bench --dry-run || ( \
+          stack --no-terminal $ARGS build cabal-install && \
+          stack --no-terminal $ARGS solver --update-config)
+
+        # Build the dependencies
+        stack --no-terminal --install-ghc $ARGS test --bench --only-dependencies
+        ;;
+      cabal)
+        cabal --version
+        travis_retry cabal update
+
+        # Get the list of packages from the stack.yaml file. Note that
+        # this will also implicitly run hpack as necessary to generate
+        # the .cabal files needed by cabal-install.
+        PACKAGES=$(stack --install-ghc query locals | grep '^ *path' | sed 's@^ *path:@@')
+
+        cabal install --only-dependencies --enable-tests --enable-benchmarks --force-reinstalls --ghc-options=-O0 --reorder-goals --max-backjumps=-1 $CABALARGS $PACKAGES
+        ;;
+    esac
+    set +ex
 
 script:
- - echo "$(ghc --version) [$(ghc --print-project-git-commit-id 2> /dev/null || echo '?')]"
- - GHC_OPTIONS="-Werror"
- - |
-   set -ex
-   stack build
-   # Run tests. Fails. To be fixed.
-   # stack --no-terminal test :gold-tests --ghc-options="$GHC_OPTIONS"
-   set +ex
+  - |
+    set -ex
+    case "$BUILD" in
+      stack)
+        stack --no-terminal $ARGS test --bench --no-run-benchmarks --haddock --no-haddock-deps
+        ;;
+      cabal)
+        cabal install --enable-tests --enable-benchmarks --force-reinstalls --ghc-options=-O0 --reorder-goals --max-backjumps=-1 $CABALARGS $PACKAGES
 
-after_success:
- - |
-   # Build and ship binary
-   ./.travis/attach-binary.sh
+        ORIGDIR=$(pwd)
+        for dir in $PACKAGES
+        do
+          cd $dir
+          cabal check || [ "$CABALVER" == "1.16" ]
+          cabal sdist
+          PKGVER=$(cabal info . | awk '{print $2;exit}')
+          SRC_TGZ=$PKGVER.tar.gz
+          cd dist
+          tar zxfv "$SRC_TGZ"
+          cd "$PKGVER"
+          cabal configure --enable-tests --ghc-options -O0
+          cabal build
+          if [ "$CABALVER" = "1.16" ] || [ "$CABALVER" = "1.18" ]; then
+            cabal test
+          else
+            cabal test --show-details=streaming --log=/dev/stdout
+          fi
+          cd $ORIGDIR
+        done
+        ;;
+    esac
+    set +ex
 
